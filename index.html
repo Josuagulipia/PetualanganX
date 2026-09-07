@@ -162,6 +162,37 @@ label.field-label{font-weight:800;font-size:13px;text-transform:uppercase;letter
 .key-glow{font-size:60px;filter:drop-shadow(0 0 18px var(--gold));animation:keyspin .9s ease;}
 @keyframes keyspin{0%{transform:rotate(-20deg) scale(.5);opacity:0}60%{transform:rotate(10deg) scale(1.15)}100%{transform:rotate(0) scale(1);opacity:1}}
 
+/* ---------- toast notifikasi ---------- */
+.toast{position:fixed;left:50%;bottom:26px;transform:translateX(-50%) translateY(20px);background:linear-gradient(180deg,var(--forest-light),var(--forest));color:#eafff2;padding:13px 22px;border-radius:14px;font-weight:800;box-shadow:0 10px 26px rgba(0,0,0,.4);z-index:300;opacity:0;transition:opacity .25s ease, transform .25s ease;display:flex;align-items:center;gap:8px;max-width:92vw;text-align:center;font-size:14px;pointer-events:none;}
+.toast.show{opacity:1;transform:translateX(-50%) translateY(0);}
+.toast.err{background:linear-gradient(180deg,#e0685a,var(--danger));}
+
+/* ---------- sertifikat ---------- */
+.cert-modal{max-width:700px;background:#fffdf6;color:var(--ink);border:none;padding:0;box-shadow:0 25px 70px rgba(0,0,0,.5);}
+.cert-border{border:10px solid var(--gold);outline:2px solid var(--gold-bright);outline-offset:-18px;padding:clamp(22px,5vw,44px) clamp(18px,5vw,34px);text-align:center;background:linear-gradient(160deg,#fffdf6,#fbf1d8);}
+.cert-ornament{font-size:42px;margin-bottom:4px;}
+.cert-title{font-family:'Cinzel',serif;font-size:clamp(20px,4.2vw,30px);letter-spacing:.08em;color:#8a6a1f;margin:0 0 8px;}
+.cert-sub{font-size:13px;color:#5c4a2c;margin:0;text-transform:uppercase;letter-spacing:.06em;}
+.cert-name{font-family:'Cinzel',serif;font-size:clamp(24px,5.5vw,36px);color:var(--ink);margin:10px 0;border-bottom:2px solid var(--gold);display:inline-block;padding-bottom:6px;word-break:break-word;}
+.cert-kelas{margin:0 0 12px;color:#5c4a2c;font-weight:700;font-size:13px;}
+.cert-body{font-size:14px;line-height:1.7;margin:14px auto 22px;max-width:520px;}
+.cert-stats{display:flex;justify-content:center;gap:clamp(14px,4vw,34px);flex-wrap:wrap;margin-bottom:26px;}
+.cert-stats div{font-size:13px;color:#5c4a2c;}
+.cert-stats b{font-size:20px;color:#8a6a1f;display:block;font-family:'Cinzel',serif;}
+.cert-footer{display:flex;justify-content:space-between;align-items:flex-end;margin-top:10px;flex-wrap:wrap;gap:16px;text-align:left;}
+.cert-date{font-size:12px;color:#5c4a2c;align-self:flex-end;}
+.cert-sign{text-align:center;}
+.cert-sign-line{font-family:'Cinzel',serif;font-weight:700;border-top:2px solid var(--ink);padding-top:6px;min-width:200px;font-size:14px;}
+.cert-sign-role{font-size:11px;color:#5c4a2c;}
+.cert-actions{padding:16px 18px;background:rgba(0,0,0,.04);}
+@media print{
+  body *{visibility:hidden;}
+  #certPrintArea, #certPrintArea *{visibility:visible;}
+  #certPrintArea{position:fixed;left:0;top:0;width:100%;margin:0;box-shadow:none;}
+  .cert-actions{display:none!important;}
+  .overlay{background:none!important;position:static!important;}
+}
+
 /* ---------- badges/achievements ---------- */
 .badge-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:14px;}
 .badge{background:#fffdf6;border:2.5px solid var(--parchment-dark);border-radius:14px;padding:16px 10px;text-align:center;}
@@ -232,14 +263,47 @@ img,svg{max-width:100%;height:auto;}
    Single-file educational adventure game.
    ====================================================================== */
 
-/* ---------------- storage helpers (window.storage, no localStorage) --- */
+/* ---------------- storage helpers ----------------------------------------
+   Prioritas: window.storage (tersedia saat game dijalankan di dalam Claude,
+   progres tersimpan ke akun & tersinkron lintas perangkat).
+   Fallback : localStorage (dipakai otomatis saat file .html ini diunduh dan
+   dibuka langsung di browser / offline, tempat window.storage tidak ada).
+   Fallback hanya menyimpan di browser/perangkat itu saja. --------------- */
+function hasCloudStorage(){
+  return typeof window.storage === 'object' && window.storage && typeof window.storage.get === 'function';
+}
+function lsKey(key, shared){ return 'phpgame:'+(shared?'shared:':'local:')+key; }
 async function sGet(key, shared=false){
-  try{ const r = await window.storage.get(key, shared); return r ? JSON.parse(r.value) : null; }
+  if(hasCloudStorage()){
+    try{ const r = await window.storage.get(key, shared); return r ? JSON.parse(r.value) : null; }
+    catch(e){ /* lanjut ke fallback di bawah */ }
+  }
+  try{ const raw = localStorage.getItem(lsKey(key, shared)); return raw ? JSON.parse(raw) : null; }
   catch(e){ return null; }
 }
 async function sSet(key, value, shared=false){
-  try{ await window.storage.set(key, JSON.stringify(value), shared); return true; }
+  if(hasCloudStorage()){
+    try{ await window.storage.set(key, JSON.stringify(value), shared); return true; }
+    catch(e){ /* lanjut ke fallback di bawah */ }
+  }
+  try{ localStorage.setItem(lsKey(key, shared), JSON.stringify(value)); return true; }
   catch(e){ console.error('storage set failed', key, e); return false; }
+}
+async function sList(prefix, shared=false){
+  if(hasCloudStorage()){
+    try{ const r = await window.storage.list(prefix, shared); return r ? r.keys : []; }
+    catch(e){ /* lanjut ke fallback di bawah */ }
+  }
+  try{
+    const nsPrefix = lsKey(prefix, shared);
+    const nsRoot = lsKey('', shared);
+    const out = [];
+    for(let i=0;i<localStorage.length;i++){
+      const k = localStorage.key(i);
+      if(k && k.indexOf(nsPrefix)===0) out.push(k.slice(nsRoot.length));
+    }
+    return out;
+  }catch(e){ return []; }
 }
 
 /* ---------------- default content (contoh materi & soal) -------------- */
@@ -407,12 +471,42 @@ async function init(){
   ]);
   S = savedProgress || defaultProgress();
   C = savedContent || { materi: DEFAULT_MATERI, levels: defaultLevels() };
+  if(!C.teacherName) C.teacherName = "Jhosua Gulipia, S.Inf.Med";
+  if(!C.school) C.school = "SMAS Maranatha";
   UI.screen = S.name ? "map" : "splash";
   render();
+  if(!hasCloudStorage()){
+    setTimeout(()=>showToast('Progres disimpan di browser/perangkat ini (tidak sinkron lintas perangkat).'), 500);
+  }
 }
 
-async function saveProgress(){ await sSet('progress', S, false); }
+async function saveProgress(){ return await sSet('progress', S, false); }
 async function saveContent(){ await sSet('content', C, true); }
+
+/* ---------------- toast notifikasi ---------------- */
+let toastTimer=null;
+function showToast(msg, type){
+  let t = document.getElementById('appToast');
+  if(!t){ t=document.createElement('div'); t.id='appToast'; document.body.appendChild(t); }
+  t.className = 'toast'+(type==='err'?' err':'');
+  t.textContent = (type==='err'?'⚠️ ':'✅ ')+msg;
+  requestAnimationFrame(()=>t.classList.add('show'));
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(()=>{ t.classList.remove('show'); }, 2600);
+}
+
+/* ---------------- simpan manual (tombol) ---------------- */
+async function manualSave(){
+  const ok = await saveProgress();
+  if(ok) showToast('Game berhasil disimpan! Terakhir: Level '+S.unlockedLevel);
+  else showToast('Gagal menyimpan game. Periksa koneksimu dan coba lagi.', 'err');
+}
+
+/* ---------------- simpan otomatis saat pemain keluar/menutup tab ---------------- */
+document.addEventListener('visibilitychange', ()=>{
+  if(document.visibilityState==='hidden' && S && S.name) saveProgress();
+});
+window.addEventListener('pagehide', ()=>{ if(S && S.name) saveProgress(); });
 async function saveLeaderboard(){
   if(!S.name) return;
   const key = 'leaderboard:'+S.name.toLowerCase().replace(/\\s+/g,'_')+'_'+(S.kelas||'-');
@@ -552,6 +646,7 @@ function renderMap(){
     <div class="chip">🗝️ ${S.keys}/10</div>
     <div class="chip mono">⭐ ${S.score}</div>
     <div class="spacer"></div>
+    <button class="btn btn-forest btn-sm" id="saveBtn">💾 Simpan</button>
     <button class="btn btn-outline btn-sm" id="achBtn">🏆 Prestasi</button>
     <button class="btn btn-outline btn-sm" id="setBtn">⚙️</button>
     <button class="btn btn-outline btn-sm" id="teachBtn2">🧑‍🏫</button>
@@ -565,6 +660,7 @@ function renderMap(){
       <div class="card">${nodesHtml}</div>
     </div>
   </div>`;
+  on('saveBtn','click', async ()=>{ SFX.click(); await manualSave(); });
   on('achBtn','click',()=>{UI.screen='achievements';render();});
   on('setBtn','click',()=>{UI.screen='settings';render();});
   on('teachBtn2','click',()=>{UI.screen='teacher';UI.teachTab='materi';render();});
@@ -666,6 +762,7 @@ function renderLevelScene(){
     <div class="chip">${heartsHtml()}</div>
     <div class="chip mono">⭐ ${S.score}</div>
     <div class="spacer"></div>
+    <button class="btn btn-forest btn-sm" id="saveBtnLvl">💾</button>
     <button class="btn btn-outline btn-sm" id="hintBtn">💡 Petunjuk</button>
     <button class="btn btn-outline btn-sm" id="audioBtn">${S.audio?'🔊':'🔇'}</button>
   </div>
@@ -682,6 +779,7 @@ function renderLevelScene(){
     <div id="hintSlot"></div>
   </div>`;
   on('backMap','click',()=>{ if(confirm('Keluar dari level? Progress level ini akan hilang.')){ stopTimer(); UI.screen='map'; render(); }});
+  on('saveBtnLvl','click', async ()=>{ SFX.click(); await manualSave(); });
   on('audioBtn','click',()=>{ S.audio=!S.audio; saveProgress(); render(); });
   on('hintBtn','click',()=>useHint());
   renderQuestionByType();
@@ -1125,12 +1223,14 @@ function renderFinalResult(){
         </div>
       </div>
       <div class="row center" style="justify-content:center;margin-top:20px;">
+        <button class="btn btn-mystic" id="certBtn">🎓 Lihat Sertifikat</button>
         <button class="btn btn-gold" id="playAgain">🔄 Main Lagi</button>
         <button class="btn btn-outline" id="viewMap">🗺️ Lihat Peta</button>
         <button class="btn btn-outline" id="viewAch">🏆 Lihat Prestasi</button>
       </div>
     </div>
   </div>`;
+  on('certBtn','click',()=>{SFX.click(); renderCertificateOverlay();});
   on('playAgain','click', async ()=>{
     const name=S.name, kelas=S.kelas, absen=S.absen, audio=S.audio;
     S = defaultProgress(); S.name=name; S.kelas=kelas; S.absen=absen; S.audio=audio; S.startedAt=Date.now();
@@ -1138,6 +1238,45 @@ function renderFinalResult(){
   });
   on('viewMap','click',()=>{UI.screen='map';render();});
   on('viewAch','click',()=>{UI.screen='achievements';render();});
+  // Tampilkan sertifikat otomatis saat pertama kali menuntaskan petualangan
+  if(!S.certShown){ S.certShown = true; saveProgress(); renderCertificateOverlay(); }
+}
+
+/* ================= SERTIFIKAT ================= */
+function renderCertificateOverlay(){
+  const tt = titleFor(S.score);
+  const dateStr = new Date().toLocaleDateString('id-ID',{day:'numeric',month:'long',year:'numeric'});
+  const ov = document.createElement('div'); ov.className='overlay';
+  ov.innerHTML = `
+  <div class="modal cert-modal" id="certPrintArea">
+    <div class="cert-border">
+      <div class="cert-ornament">🏆</div>
+      <h1 class="cert-title">SERTIFIKAT PENGHARGAAN</h1>
+      <p class="cert-sub">Dengan bangga diberikan kepada</p>
+      <h2 class="cert-name">${esc(S.name)}</h2>
+      <p class="cert-kelas">${S.kelas?('Kelas '+esc(S.kelas)):''}${(S.kelas&&S.absen)?' • ':''}${S.absen?('No. Absen '+esc(S.absen)):''}</p>
+      <p class="cert-body">Atas keberhasilannya menyelesaikan seluruh 10 wilayah tantangan dalam permainan edukasi <b>"Petualangan Mencari Harta Pengetahuan"</b>${C.school?(' di '+esc(C.school)):''}.</p>
+      <div class="cert-stats">
+        <div><b>${S.score}</b>Poin Akhir</div>
+        <div><b>${S.keys}/10</b>Kunci Pengetahuan</div>
+        <div><b>${tt.ic} ${tt.t}</b>Gelar Pencapaian</div>
+      </div>
+      <div class="cert-footer">
+        <div class="cert-date">Diterbitkan pada<br>${dateStr}</div>
+        <div class="cert-sign">
+          <div class="cert-sign-line">${esc(C.teacherName||'—')}</div>
+          <div class="cert-sign-role">Guru Pengampu${C.school?(' — '+esc(C.school)):''}</div>
+        </div>
+      </div>
+    </div>
+    <div class="cert-actions row center" style="justify-content:center;">
+      <button class="btn btn-gold btn-sm" id="printCert">🖨️ Cetak / Simpan sebagai PDF</button>
+      <button class="btn btn-outline btn-sm" id="closeCert">✖️ Tutup</button>
+    </div>
+  </div>`;
+  document.body.appendChild(ov);
+  ov.querySelector('#printCert').onclick = ()=>{ window.print(); };
+  ov.querySelector('#closeCert').onclick = ()=>{ document.body.removeChild(ov); };
 }
 
 /* ================= ACHIEVEMENTS ================= */
@@ -1175,11 +1314,17 @@ function renderSettings(){
       <div class="row" style="justify-content:space-between;margin-bottom:14px;">
         <div><b>👤 Nama Petualang</b><div class="small-muted">${esc(S.name)} ${S.kelas?(' • Kelas '+esc(S.kelas)):''} ${S.absen?(' • No. '+esc(S.absen)):''}</div></div>
       </div>
+      <div class="row" style="justify-content:space-between;margin-bottom:14px;">
+        <div><b>💾 Mode Penyimpanan</b><div class="small-muted">${hasCloudStorage() ? 'Tersambung ke akun Claude (progres tersinkron)' : 'Penyimpanan browser — progres tersimpan di perangkat/browser ini saja'}</div></div>
+      </div>
+      <button class="btn btn-forest btn-sm" id="saveBtnSet">💾 Simpan Game Sekarang</button>
+      <div style="height:10px;"></div>
       <button class="btn btn-danger btn-sm" id="resetProgress">🗑️ Reset Progress Saya</button>
     </div>
    </div>
   </div>`;
   on('back2','click',()=>{UI.screen='map';render();});
+  on('saveBtnSet','click', async ()=>{ SFX.click(); await manualSave(); });
   on('audioSwitch','click', async ()=>{ S.audio=!S.audio; await saveProgress(); render(); });
   on('resetProgress','click', async ()=>{
     if(confirm('Yakin ingin mereset seluruh progress permainanmu?')){
@@ -1417,7 +1562,7 @@ function renderTeachBank(body){
 async function renderTeachSiswa(body){
   body.innerHTML = `<p class="small-muted">Memuat hasil siswa…</p>`;
   let keys = [];
-  try{ const r = await window.storage.list('leaderboard:', true); keys = r ? r.keys : []; }catch(e){ keys=[]; }
+  try{ keys = await sList('leaderboard:', true); }catch(e){ keys=[]; }
   if(!keys.length){ body.innerHTML = `<p>Belum ada data siswa yang menyelesaikan level. Data akan muncul setelah siswa bermain.</p>`; return; }
   const rows = [];
   for(const k of keys){
@@ -1437,12 +1582,27 @@ function renderTeachSettings(body){
     <div style="flex:1;min-width:160px;"><label class="field-label">Jawaban Salah</label><input type="text" value="-1 ❤️ Nyawa" disabled></div>
     <div style="flex:1;min-width:160px;"><label class="field-label">Gunakan Hint</label><input type="text" value="-10 poin" disabled></div>
    </div>
+   <div style="height:18px;"></div>
+   <h3 style="margin:0 0 10px;">🎓 Data untuk Sertifikat Kelulusan</h3>
+   <label class="field-label">Nama Guru Pengampu</label>
+   <input type="text" id="teacherNameInput" value="${esc(C.teacherName||'')}">
+   <div style="height:10px;"></div>
+   <label class="field-label">Nama Sekolah</label>
+   <input type="text" id="schoolInput" value="${esc(C.school||'')}">
    <div style="height:14px;"></div>
+   <button class="btn btn-mystic btn-sm" id="saveCertInfo">💾 Simpan Data Sertifikat</button>
+   <div style="height:18px;"></div>
    <button class="btn btn-danger" id="resetContent">🗑️ Kembalikan Materi & Soal ke Contoh Bawaan</button>
   `;
+  on('saveCertInfo','click', async ()=>{
+    C.teacherName = document.getElementById('teacherNameInput').value.trim();
+    C.school = document.getElementById('schoolInput').value.trim();
+    await saveContent();
+    showToast('Data sertifikat berhasil disimpan.');
+  });
   on('resetContent','click', async ()=>{
     if(confirm('Kembalikan materi dan seluruh soal ke data contoh bawaan?')){
-      C = { materi: DEFAULT_MATERI, levels: defaultLevels() };
+      C = { materi: DEFAULT_MATERI, levels: defaultLevels(), teacherName: C.teacherName, school: C.school };
       await saveContent();
       alert('Materi & soal dikembalikan ke contoh bawaan.');
       render();
